@@ -16,21 +16,23 @@ class Foo():
     def __init__(self, dead_or_alive):
         self.dead_or_alive = dead_or_alive
         
+        act = 'tanh' # relu, don't know if it dies or not
+        
         self.folder_name = '/home/lameeus/data/personal/cartpole/'
         in_obs_prev = Input((4,), name='observations')
-        layer1 = Dense(10, activation='relu')(in_obs_prev)
+        layer1 = Dense(10, activation=act)(in_obs_prev)
         out_act = Dense(2, activation='softmax')(layer1)
         self.model_player = Model(in_obs_prev, out_act, name = 'act_model')
 
         in_act = Input((2,), name='activation')
         layer2 = Concatenate()([in_obs_prev, in_act])
-        layer2 = Dense(10, activation='relu')(layer2)
+        layer2 = Dense(10, activation=act)(layer2)
         out_obs_next = Dense(4, activation='linear', name='next')(layer2)
         self.model_next = Model([in_obs_prev, in_act], out_obs_next, name = 'next_model')
         self.model_next.compile(optimizer=Adam(lr=1e-3), loss='mse')
   
         in_obs_next = Input((4,), name='next_observation')
-        layer3 = Dense(10, activation='relu')(in_obs_next)
+        layer3 = Dense(10, activation=act)(in_obs_next)
         if self.dead_or_alive:
             out_epochs = Dense(1, activation='sigmoid', name='when_dead')(layer3)
         else:
@@ -55,7 +57,7 @@ class Foo():
             # return -K.log(y_pred)  # you want y_pred as big as possible
             return mse(y_true, y_pred)
         
-        self.model_total.compile(optimizer=Adam(lr=1e-3), loss=loss)
+        self.model_total.compile(optimizer=Adam(lr=1e-3), loss='mse')
 
         # self.model_dead.trainable = True
         # self.model_next.trainable = True
@@ -68,9 +70,14 @@ class Foo():
         #         print('idk')
         #         a.trainable = False
         
+        # TODO test
+        self.model_dead.trainable = True
+        self.model_next.trainable = True
+        self.model_player.trainable = True
+        
         out_alls = [self.model_next([in_obs_next, in_act]), self.model_dead(in_obs_next), self.model_total(in_obs_prev)]
         self.modal_all = Model([in_obs_prev, in_act, in_obs_next], out_alls)
-        self.modal_all.compile(optimizer=Adam(lr=1e-4), loss=['mse', 'mse', loss])
+        self.modal_all.compile(optimizer=Adam(lr=1e-3), loss=['mse', 'mse', 'mse'], loss_weights=[1, 10, 1])
 
         print('act:')
         self.model_player.summary()
@@ -84,8 +91,8 @@ class Foo():
         print('total:')
         self.model_total.summary()
         
-        print('all:')
-        self.modal_all.summary()
+        # print('all:')
+        # self.modal_all.summary()
         
         self.load()
         
@@ -112,21 +119,35 @@ class Foo():
         # action_prop = 1 if y > 0 else 0
         return action_prop, y
         
-    def train_predict(self, obs_prev, act, obs, y_epochs, verbose=1, epochs=1):
+    def train_predict(self, y_epochs, verbose=1, epochs=1, var_tot = None):
         # TODO order of execution!? might be fixed when all trained at same time!!
 
+        cb1 = []    #[DeadReluDetector(x_train=[obs, y_epochs], verbose=True)]
+        cb2 = []    #[DeadReluDetector(x_train=[obs_prev, act], verbose=True)]
+        cb3 = []    #[DeadReluDetector(x_train=obs_prev, verbose=True)]
+    
+        if var_tot is not None:
+            obs_prev = var_tot[0]
+            obs_next = var_tot[1]
+            act = var_tot[2]
+            y_epochs = var_tot[3]
+            
         if self.dead_or_alive:
             t_goal = y_epochs*0 # the goal is to stay alive
+
+            # t_goal = y_epochs
+            # t_goal[t_goal == 1] = 0.0   # is not allowed to die 'as hard'?
         else:
             # t_goal is now incread by 10%
             t_goal = y_epochs * 1.1
-        if 1:
-            self.model_dead.fit(obs, y_epochs, epochs=epochs, verbose=verbose)  # although it says untrainable, but it does!
-            self.model_next.fit([obs_prev, act], obs, epochs=epochs, verbose=verbose)    # although it says untrainable, but it does!
-            self.model_total.fit(obs_prev, t_goal, epochs=epochs, verbose=verbose)      # Trains the act
+            
+        if 0:
+            # self.model_dead.fit(obs_next, y_epochs, epochs=epochs, verbose=verbose, callbacks=cb1)  # Trains the dead condition. although it says untrainable, but it does!
+            # self.model_next.fit([obs_prev, act], obs_next, epochs=epochs, verbose=verbose, callbacks=cb2)    # although it says untrainable, but it does!
+            self.model_total.fit(obs_prev, t_goal, epochs=epochs, verbose=1, callbacks=cb3)      # Trains the act
         
         else:   # all trained at the same time
-            self.modal_all.fit([obs_prev, act, obs], [obs, y_epochs, t_goal], epochs=epochs, verbose=verbose)
+            self.modal_all.fit([obs_prev, act, obs_next], [obs_next, y_epochs, t_goal], epochs=epochs, verbose=verbose)
         
         self.save()
 
@@ -140,7 +161,7 @@ class Main():
     def run_multiple(self):
         
         # settings
-        n_runs = 5  # 20
+        n_runs = 20  # 20
 
         # variables to save
         n_over = 0
@@ -150,7 +171,6 @@ class Main():
         self.obs_prev = []
         self.act = []
         self.obs = []
-        self.alive = []
         
         for i_episode in range(n_runs):
             max_timesteps, bool_over = self.loop()
@@ -177,7 +197,7 @@ class Main():
     def loop(self):
         
         # settings
-        t_max = 1000  # 100
+        t_max = 100000  # 100
         self.env._max_episode_steps = t_max+5   # to be sure ;)
 
         
@@ -195,35 +215,38 @@ class Main():
             assert reward == 1
             assert info == {}
 
-            self.obs.append(observation)
+            self.obs.append(observation)    # the new observation
         
             if done:
                 # print("Episode finished after {} timesteps".format(t + 1))
-                self.alive.append(0)
                 return t, 0
-            else:
-                self.alive.append(1)
-    
+      
         # TODO what to do with it
         # loop finished before done
         print('{} is not enough'.format(t_max))
-        # TODO still alive
-        self.alive.append(1)
         return t, 1
 
 
 def main():
     m = Main()
     
-    for _ in range(10):
+    var_prev = (np.empty((0, 4)), np.empty((0, 4)), np.empty((0, 2)), np.empty((0, )))
+    
+    for t_restart in range(100000):
+        print('t_retrain = {}'.format(t_restart))
         y_epochs = m.run_multiple()
         
         obs = np.stack(m.obs, axis = 0)
         obs_prev = np.stack(m.obs_prev, axis = 0)
         act = np.concatenate(m.act, axis = 0) # act has shape (1, n)
         
-        m.foo.train_predict(obs_prev, act, obs, y_epochs, epochs=100, verbose=0)
-        m.foo.train_predict(obs_prev, act, obs, y_epochs, verbose=2)
+        var_now = (obs_prev, obs, act, y_epochs)
+        var_tot = [np.concatenate([lst1, lst2] , axis = 0) for lst1, lst2 in zip(var_now, var_prev)]
+        m.foo.train_predict(y_epochs, epochs=1000, verbose=0, var_tot = var_tot)
+        if 1: # show performance
+            m.foo.train_predict(y_epochs, verbose=2, var_tot = var_tot)
+            
+        var_prev = (obs_prev, obs, act, y_epochs) # update previous
         
     plt.plot([0, 1], [2, 3])
     plt.show()
