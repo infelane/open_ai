@@ -142,12 +142,15 @@ class Foo():
             t_goal = y_epochs * 1.1
             
         if 0:
-            # self.model_dead.fit(obs_next, y_epochs, epochs=epochs, verbose=verbose, callbacks=cb1)  # Trains the dead condition. although it says untrainable, but it does!
-            # self.model_next.fit([obs_prev, act], obs_next, epochs=epochs, verbose=verbose, callbacks=cb2)    # although it says untrainable, but it does!
+            self.model_dead.fit(obs_next, y_epochs, epochs=epochs, verbose=verbose, callbacks=cb1)  # Trains the dead condition. although it says untrainable, but it does!
+            self.model_next.fit([obs_prev, act], obs_next, epochs=epochs, verbose=verbose, callbacks=cb2)    # although it says untrainable, but it does!
             self.model_total.fit(obs_prev, t_goal, epochs=epochs, verbose=1, callbacks=cb3)      # Trains the act
         
         else:   # all trained at the same time
-            self.modal_all.fit([obs_prev, act, obs_next], [obs_next, y_epochs, t_goal], epochs=epochs, verbose=verbose)
+            # import keras
+            # cb = keras.callbacks.EarlyStopping('val_loss')
+            
+            self.modal_all.fit([obs_prev, act, obs_next], [obs_next, y_epochs, t_goal], validation_split=0.1, epochs=epochs, verbose=verbose)
         
         self.save()
 

@@ -8,15 +8,16 @@ import os
 import random
 from os.path import isfile
 from collections import deque
+from link_to_keras_contrib_lameeus.keras_contrib.callbacks import dead_relu_detector
 
 NUM_ACTIONS = 2
 NUM_STATES = 4
 MAX_REPLAY_STATES = 100
 BATCH_SIZE = 50 #20
-NUM_GAMES_TRAIN = 500
+NUM_GAMES_TRAIN = 500   # amount of games you will simulate
 JUMP_FPS = 2
 WEIGHT_FILE = 'weights.h5'
-MAX_EPS = 1000
+MAX_EPS = 1000  # maximum epochs to simulate
 
 def create_model(n_inputs, n_outputs):
     model = Sequential([
@@ -94,8 +95,9 @@ def main():
                 if done_rep:
                     # update_target[action_rep] = -1  # it died by doing 'action_rep', the target should thus be lowered!
                     
-                    update_target[action_rep] = -1 - gamma * np.sum(np.square(new_q)) / (np.sum(new_q) + 0.001)
-                    
+                    # update_target[action_rep] = -1 - gamma * np.sum(np.square(new_q)) / (np.sum(new_q) + 0.001)
+
+                    update_target[action_rep] = 0
                     
                     # update_target[action_rep] = (np.min(new_q)/gamma) - 10
                     # update_target[action_rep] = new_q[action_rep]/gamma - 1
@@ -126,8 +128,12 @@ def main():
                     # update_target[action_rep] = reward_rep + np.mean(new_q)*gamma    # has to decrease, otherwise explodes
                     
                     # weighted sum
-                    update_target[action_rep] = reward_rep + gamma * np.sum(np.square(new_q)) / (np.sum(new_q) + 0.001)
+                    # update_target[action_rep] = reward_rep + gamma * np.sum(np.square(new_q)) / (np.sum(new_q) + 0.001)
                     # TODO include previous weight to. (should converge to a value that it had already!!
+
+                    # update_target[action_rep] = 1
+
+                    update_target[action_rep] = gamma * np.max(old_q) + 1
                     
                     # update_target[action_rep] = reward_rep + np.mean(new_q)*gamma    # has to decrease, otherwise explodes
                     
@@ -139,7 +145,8 @@ def main():
             if 0:
                 loss += model.train_on_batch(X_train, Y_train)
             else:
-                model.fit(X_train, Y_train, epochs=1, verbose=0)
+                cb = [lambda : dead_relu_detector(X_train)]
+                model.fit(X_train, Y_train, epochs=1, verbose=0, callbacks=cb)
                 loss += model.test_on_batch(X_train, Y_train)
             if reward_game > MAX_EPS:
                 break
