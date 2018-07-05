@@ -18,7 +18,7 @@ class Foo():
         
         act = 'tanh' # relu, don't know if it dies or not
         
-        self.folder_name = '/home/lameeus/data/personal/cartpole/'
+        self.folder_name = '/scratch/lameeus/data/personal/cartpole/'
         in_obs_prev = Input((4,), name='observations')
         layer1 = Dense(10, activation=act)(in_obs_prev)
         out_act = Dense(2, activation='softmax')(layer1)
