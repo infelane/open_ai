@@ -1,1 +1,12 @@
 link_to_keras_contrib_lameeus
+
+pole/weights
+pole/pictures
+pole/logs
+
+# network weights
+*.h5
+# the saved states
+*.pkl
+# manual logs
+*.csv
